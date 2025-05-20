@@ -35,6 +35,7 @@ static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
     { "mistral-v3",        LLM_CHAT_TEMPLATE_MISTRAL_V3        },
     { "mistral-v3-tekken", LLM_CHAT_TEMPLATE_MISTRAL_V3_TEKKEN },
     { "mistral-v7",        LLM_CHAT_TEMPLATE_MISTRAL_V7        },
+    { "bitnet",            LLM_CHAT_TEMPLATE_BITNET            },
     { "phi3",              LLM_CHAT_TEMPLATE_PHI_3             },
     { "phi4",              LLM_CHAT_TEMPLATE_PHI_4             },
     { "falcon3",           LLM_CHAT_TEMPLATE_FALCON_3          },
@@ -117,6 +118,8 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
                 return LLM_CHAT_TEMPLATE_LLAMA_2;
             }
         }
+    } else if (tmpl == "bitnet" || (tmpl_contains("BITNET"))) {
+        return LLM_CHAT_TEMPLATE_BITNET;
     } else if (tmpl_contains("<|assistant|>") && tmpl_contains("<|end|>")) {
         return LLM_CHAT_TEMPLATE_PHI_3;
     } else if (tmpl_contains("<|assistant|>") && tmpl_contains("<|user|>")) {
@@ -272,6 +275,25 @@ int32_t llm_chat_apply_template(
             } else {
                 ss << content << "</s>";
                 is_inside_turn = false;
+            }
+        }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_BITNET) {
+        // bitnet-25
+        std::string system_prompt = "";
+        for (auto message : chat) {
+            std::string role(message->role);
+            if (role == "system") {
+                ss << "System: ";
+                ss << message->content;
+            } else if (role == "user") {
+                ss << "User: ";
+                if (!system_prompt.empty()) {
+                    ss << system_prompt;
+                    system_prompt = "";
+                }
+                ss << message->content << "<|eot_id|>Assistant: ";
+            } else {
+                ss << message->content;
             }
         }
     } else if (tmpl == LLM_CHAT_TEMPLATE_PHI_3) {
