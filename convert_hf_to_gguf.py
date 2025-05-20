@@ -236,7 +236,7 @@ class Model:
                 return False
         return name == (key_name + suffix)
 
-    def map_tensor_name(self, name: str, try_suffixes: Sequence[str] = (".weight", ".bias")) -> str:
+    def map_tensor_name(self, name: str, try_suffixes: Sequence[str] = (".weight", ".bias", ".weight_scale")) -> str:
         new_name = self.tensor_map.get_name(key=name, try_suffixes=try_suffixes)
         if new_name is None:
             raise ValueError(f"Can not map tensor {name!r}")
@@ -2303,6 +2303,61 @@ class BitnetModel(Model):
 
         yield (new_name, data_torch)
 
+
+@Model.register("BitNetForCausalLM")
+class BitnetModel25(Model):
+    model_arch = gguf.MODEL_ARCH.BITNET_25
+
+    def set_vocab(self):
+        self._set_vocab_sentencepiece()
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
+        self.gguf_writer.add_rope_scaling_factor(1.0)
+
+    def weight_quant(self, weight: Tensor) -> Tensor:
+        dtype = weight.dtype
+        weight = weight.float()
+        scale = weight.abs().mean().clamp(min=1e-5)
+        iscale = 1 / scale
+        # TODO: multiply by the scale directly instead of inverting it twice
+        # (this is also unnecessarily doubly inverted upstream)
+        # ref: https://huggingface.co/1bitLLM/bitnet_b1_58-3B/blob/af89e318d78a70802061246bf037199d2fb97020/utils_quant.py#L10
+        result = (weight * iscale).round().clamp(-1, 1) / iscale
+        return result.type(dtype)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        new_name = self.map_tensor_name(name)
+
+        self._t_mac_raw_shape = None
+        if any(self.match_model_tensor_name(new_name, key, bid) for key in [
+            gguf.MODEL_TENSOR.ATTN_Q,
+            gguf.MODEL_TENSOR.ATTN_K,
+            gguf.MODEL_TENSOR.ATTN_V,
+            gguf.MODEL_TENSOR.ATTN_OUT,
+            gguf.MODEL_TENSOR.FFN_UP,
+            gguf.MODEL_TENSOR.FFN_DOWN,
+            gguf.MODEL_TENSOR.FFN_GATE,
+        ]):
+            # TODO: apply latest updates
+            # transform weight into 1/0/-1 (in fp32)
+            data_torch = self.weight_quant(data_torch)
+            from gguf.tmac_utils import is_tmac_ftype
+            if self.enable_t_mac and is_tmac_ftype(self.ftype):
+                # transform weight into TMAC_BN_0 format
+                from gguf.tmac_utils import preprocess_for_t_mac
+                data = LazyTorchTensor.to_eager(data_torch).numpy()
+                scale = np.max(np.abs(data))
+                w = np.round(data / scale + 2).astype(np.uint8)
+                data_torch = torch.from_numpy(preprocess_for_t_mac(w, scale.reshape(1), bits=2))
+                self.quantization_config["bits"] = 2
+                self.quantization_config["group_size"] = -1
+                self.quantization_config["sym"] = True
+                self.quantization_config["quant_method"] = "bitnet"
+                self._t_mac_raw_shape = w.shape
+
+        yield (new_name, data_torch)
 
 @Model.register("GrokForCausalLM")
 class GrokModel(Model):

@@ -36,6 +36,7 @@ static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
     { "mistral-v3-tekken", LLM_CHAT_TEMPLATE_MISTRAL_V3_TEKKEN },
     { "mistral-v7",        LLM_CHAT_TEMPLATE_MISTRAL_V7        },
     { "bitnet",            LLM_CHAT_TEMPLATE_BITNET            },
+    { "bitnet-25",         LLM_CHAT_TEMPLATE_BITNET            },
     { "phi3",              LLM_CHAT_TEMPLATE_PHI_3             },
     { "phi4",              LLM_CHAT_TEMPLATE_PHI_4             },
     { "falcon3",           LLM_CHAT_TEMPLATE_FALCON_3          },
@@ -118,7 +119,7 @@ llm_chat_template llm_chat_detect_template(const std::string & tmpl) {
                 return LLM_CHAT_TEMPLATE_LLAMA_2;
             }
         }
-    } else if (tmpl == "bitnet" || (tmpl_contains("BITNET"))) {
+    } else if (tmpl == "bitnet" || tmpl == "bitnet-25" || (tmpl_contains("BITNET"))) {
         return LLM_CHAT_TEMPLATE_BITNET;
     } else if (tmpl_contains("<|assistant|>") && tmpl_contains("<|end|>")) {
         return LLM_CHAT_TEMPLATE_PHI_3;
